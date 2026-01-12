@@ -4,7 +4,7 @@ use dotenv::dotenv;
 use std::{env, str::FromStr, time::Instant};
 
 // SDK Imports
-use polymarket_client_sdk::clob::types::{OrderType, Side};
+use polymarket_client_sdk::clob::types::{OrderType, Side, SignatureType};
 use polymarket_client_sdk::clob::{Client, Config};
 use polymarket_client_sdk::types::Decimal;
 
@@ -47,6 +47,7 @@ async fn main() -> Result<()> {
 
     let client = Client::new(host, config)?
         .authentication_builder(&signer)
+        .signature_type(SignatureType::GnosisSafe)
         .authenticate()
         .await?;
 
