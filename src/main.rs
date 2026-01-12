@@ -3,6 +3,7 @@ use chrono::Utc;
 use clap::Parser;
 use dotenv::dotenv;
 use std::{env, str::FromStr, time::Instant};
+use tokio::time::{sleep, Duration};
 
 // SDK Imports
 use polymarket_client_sdk::clob::types::{OrderType, Side, SignatureType};
@@ -53,56 +54,58 @@ async fn main() -> Result<()> {
         .await?;
 
     let t1 = Instant::now();
-    println!("✅ Auth Time: {:.2?}ms", (t1 - t0).as_millis());
+    println!(
+        "✅ Auth & Setup Time: {:.2?}ms (This is paid only once)",
+        (t1 - t0).as_millis()
+    );
+    println!("---------------------------------------------------");
 
+    // 4. Prepare Order Data
     let side = if args.side.to_uppercase() == "SELL" {
         Side::Sell
     } else {
         Side::Buy
     };
-
-    // FIX 1: Format Price to strictly 2 decimal places (avoids 0.4099999 issue)
     let price_str = format!("{:.2}", args.price);
-    let price_d = Decimal::from_str(&price_str)
-        .map_err(|_| anyhow::anyhow!("Failed to parse price decimal"))?;
-
-    // FIX 2: Handle Size safely as well (trimming floating point artifacts)
-    // We format size to 2 decimals usually, or just stringify the float clean
+    let price_d = Decimal::from_str(&price_str)?;
     let size_str = args.size.to_string();
-    let size_d = Decimal::from_str(&size_str)
-        .map_err(|_| anyhow::anyhow!("Failed to parse size decimal"))?;
+    let size_d = Decimal::from_str(&size_str)?;
+    let token_id_u256 = U256::from_str_radix(&args.token_id, 10)?;
 
-    // Parse Token ID
-    let token_id_u256 = U256::from_str_radix(&args.token_id, 10)
-        .map_err(|_| anyhow::anyhow!("Invalid Token ID format"))?;
+    // --- LOOP 3 TIMES ---
+    for i in 1..=3 {
+        println!("\n🚀 Sending Order #{}...", i);
 
-    println!("⚡ Sending Order: Price {} | Size {}", price_str, size_str);
-    let t_start = Instant::now();
-    let client_timestamp = Utc::now().timestamp_millis();
+        let t_start = Instant::now();
+        let client_timestamp = Utc::now().timestamp_millis();
 
-    // 1. Build
-    let limit_order = client
-        .limit_order()
-        .token_id(token_id_u256)
-        .price(price_d)
-        .size(size_d)
-        .side(side)
-        .order_type(OrderType::GTC)
-        .build()
-        .await?;
+        // Build & Sign
+        let limit_order = client
+            .limit_order()
+            .token_id(token_id_u256)
+            .price(price_d)
+            .size(size_d)
+            .side(side)
+            .order_type(OrderType::GTC)
+            .build()
+            .await?;
+        let signed_order = client.sign(&signer, limit_order).await?;
 
-    // 2. Sign
-    let signed_order = client.sign(&signer, limit_order).await?;
+        // Post
+        let response = client.post_order(signed_order).await?;
 
-    // 3. Post
-    let response = client.post_order(signed_order).await?;
+        let t_end = Instant::now();
+        let latency = (t_end - t_start).as_millis();
 
-    let t_end = Instant::now();
-    println!("🕒 Client Timestamp: {}", client_timestamp);
-    println!(
-        "✅ Order Successful! Latency: {:.2?}ms",
-        (t_end - t_start).as_millis()
-    );
-    println!("🆔 Response: {:?}", response);
+        println!("🕒 Client TS: {}", client_timestamp);
+        println!("✅ Order #{} Successful!", i);
+        println!("⏱️  Latency: {}ms", latency);
+        println!("🆔 Response: {:?}", response);
+
+        if i < 3 {
+            println!("... Sleeping 1s to respect rate limits ...");
+            sleep(Duration::from_millis(1000)).await;
+        }
+    }
     Ok(())
 }
