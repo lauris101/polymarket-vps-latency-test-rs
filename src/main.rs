@@ -1,4 +1,5 @@
 use anyhow::Result;
+use chrono::Utc;
 use clap::Parser;
 use dotenv::dotenv;
 use std::{env, str::FromStr, time::Instant};
@@ -77,6 +78,7 @@ async fn main() -> Result<()> {
 
     println!("⚡ Sending Order: Price {} | Size {}", price_str, size_str);
     let t_start = Instant::now();
+    let client_timestamp = Utc::now().timestamp_millis();
 
     // 1. Build
     let limit_order = client
@@ -96,6 +98,7 @@ async fn main() -> Result<()> {
     let response = client.post_order(signed_order).await?;
 
     let t_end = Instant::now();
+    println!("🕒 Client Timestamp: {}", client_timestamp);
     println!(
         "✅ Order Successful! Latency: {:.2?}ms",
         (t_end - t_start).as_millis()
