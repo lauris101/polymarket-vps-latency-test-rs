@@ -43,7 +43,7 @@ fn generate_l2_headers(
         .as_millis()
         .to_string();
 
-    let secret_bytes = base64::engine::general_purpose::STANDARD.decode(api_secret)?;
+    let secret_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(api_secret)?;
 
     let mut mac = Hmac::<Sha256>::new_from_slice(&secret_bytes)?;
     mac.update(timestamp.as_bytes());
