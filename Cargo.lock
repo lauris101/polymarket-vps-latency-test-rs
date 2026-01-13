@@ -2887,6 +2887,7 @@ dependencies = [
  "clap",
  "dotenv",
  "polymarket-client-sdk",
+ "serde_json",
  "tokio",
 ]
 
