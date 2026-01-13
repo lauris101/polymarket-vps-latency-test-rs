@@ -1,3 +1,4 @@
+use alloy::hex;
 use alloy::primitives::U256;
 use alloy::signers::local::PrivateKeySigner;
 use alloy::signers::Signer;
