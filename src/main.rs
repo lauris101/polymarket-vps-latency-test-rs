@@ -29,6 +29,17 @@ struct Args {
     side: String,
 }
 
+fn decode_polymarket_secret(secret: &str) -> Result<Vec<u8>> {
+    use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD};
+
+    STANDARD
+        .decode(secret)
+        .or_else(|_| STANDARD_NO_PAD.decode(secret))
+        .or_else(|_| URL_SAFE.decode(secret))
+        .or_else(|_| URL_SAFE_NO_PAD.decode(secret))
+        .map_err(Into::into)
+}
+
 fn generate_l2_headers(
     api_key: &str,
     api_secret: &str,
@@ -43,7 +54,7 @@ fn generate_l2_headers(
         .as_millis()
         .to_string();
 
-    let secret_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(api_secret)?;
+    let secret_bytes = decode_polymarket_secret(api_secret)?;
 
     let mut mac = Hmac::<Sha256>::new_from_slice(&secret_bytes)?;
     mac.update(timestamp.as_bytes());
