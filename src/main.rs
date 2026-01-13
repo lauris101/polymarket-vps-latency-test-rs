@@ -1,20 +1,18 @@
-use alloy::hex;
 use alloy::primitives::U256;
-use alloy::signers::local::PrivateKeySigner;
-use alloy::signers::Signer;
+use alloy::signers::local::PrivateKeySigner; // ✅ Correct
 use anyhow::Result;
 use base64::{engine::general_purpose, Engine as _};
 use clap::Parser;
 use hmac::{Hmac, Mac};
 use polymarket_client_sdk::auth::ExposeSecret;
-use polymarket_client_sdk::clob::types::{OrderType, Side, SignatureType};
+use polymarket_client_sdk::clob::types::{OrderType, Side};
 use polymarket_client_sdk::clob::{Client as SdkClient, Config};
 use polymarket_client_sdk::types::Decimal;
 use reqwest::{header, Client as HttpClient};
 use sha2::{Digest, Sha256};
 use std::env;
 use std::str::FromStr;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::{sleep, Duration};
 
 #[derive(Parser, Debug)]
@@ -27,17 +25,6 @@ struct Args {
     size: String,
     #[arg(long, default_value = "BUY")]
     side: String,
-}
-
-fn decode_polymarket_secret(secret: &str) -> Result<Vec<u8>> {
-    use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD};
-
-    STANDARD
-        .decode(secret)
-        .or_else(|_| STANDARD_NO_PAD.decode(secret))
-        .or_else(|_| URL_SAFE.decode(secret))
-        .or_else(|_| URL_SAFE_NO_PAD.decode(secret))
-        .map_err(Into::into)
 }
 
 fn generate_l2_headers(
@@ -55,12 +42,11 @@ fn generate_l2_headers(
 
     let mut mac = Hmac::<Sha256>::new_from_slice(api_secret.as_bytes())?;
     mac.update(timestamp.as_bytes());
-    mac.update(method.as_bytes()); // "POST"
-    mac.update(path.as_bytes()); // "/orders"
+    mac.update(method.as_bytes());
+    mac.update(path.as_bytes());
     mac.update(body_bytes);
 
-    // STANDARD base64 (this is what Polymarket expects)
-    let signature = base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes());
+    let signature = general_purpose::STANDARD.encode(mac.finalize().into_bytes());
 
     let mut headers = header::HeaderMap::new();
     headers.insert("POLY-API-KEY", header::HeaderValue::from_str(api_key)?);
@@ -89,35 +75,22 @@ async fn main() -> Result<()> {
     dotenv::dotenv().ok();
     let args = Args::parse();
 
-    // ---- SIGNER ----
+    // ---- SIGNER (alloy) ----
     let pk = env::var("PK").expect("PK missing");
-    let signer: PrivateKeySigner = pk.parse()?;
-    let signer = signer.with_chain_id(Some(137));
+    let signer: PrivateKeySigner = pk.parse()?; // ✅ Correct
+    let signer = alloy::signers::Signer::with_chain_id(signer, Some(137)); // Polygon chain
 
-    // ---- SDK (unauth) ----
-    let config = Config::builder().build();
+    // ---- SDK to derive proxy API credentials ----
     let host = "https://clob.polymarket.com";
-    let unauth = SdkClient::new(host, config)?;
-
-    println!("🔐 Fetching Credentials & Deriving Proxy...");
-
+    let unauth = SdkClient::new(host, Config::builder().build())?;
+    println!("🔐 Deriving Proxy API credentials...");
     let creds = unauth.create_or_derive_api_key(&signer, None).await?;
-
     let api_key = creds.key().to_string();
     let api_secret = creds.secret().expose_secret().to_string();
     let api_passphrase = creds.passphrase().expose_secret().to_string();
+    println!("✅ Proxy credentials ready (API Key: {}...)", &api_key[..8]);
 
-    println!("✅ Credentials Acquired! API Key: {}...", &api_key[..8]);
-
-    // ---- SDK (auth, signing only) ----
-    let sdk = unauth
-        .authentication_builder(&signer)
-        .credentials(creds)
-        .signature_type(SignatureType::GnosisSafe)
-        .authenticate()
-        .await?;
-
-    // ---- RAW HTTP CLIENT ----
+    // ---- RAW HTTP CLIENT (low latency) ----
     let http = HttpClient::builder()
         .tcp_nodelay(true)
         .pool_idle_timeout(None)
@@ -127,7 +100,7 @@ async fn main() -> Result<()> {
     let path = "/orders";
     let method = "POST";
 
-    // ---- ORDER PARAMS ----
+    // ---- ORDER PARAMETERS ----
     let token_id = U256::from_str(&args.token_id)?;
     let price = Decimal::from_str(&args.price)?;
     let size = Decimal::from_str(&args.size)?;
@@ -137,28 +110,20 @@ async fn main() -> Result<()> {
         Side::Buy
     };
 
-    println!("\n🚀 Starting Low-Latency Loop...");
+    // ---- PREBUILD ORDER JSON ----
+    let order_payload = serde_json::json!({
+        "tokenId": token_id.to_string(),
+        "price": price.to_string(),
+        "size": size.to_string(),
+        "side": format!("{side:?}"),
+        "orderType": "GTC"
+    });
+
+    let body_bytes = serde_json::to_vec(&order_payload)?;
+
+    println!("🚀 Starting low-latency loop...");
 
     for i in 1..=3 {
-        // ---- BUILD + SIGN ORDER (SDK) ----
-        let unsigned = sdk
-            .limit_order()
-            .token_id(token_id)
-            .price(price)
-            .size(size)
-            .side(side)
-            .order_type(OrderType::GTC)
-            .build()
-            .await?;
-
-        let signed = sdk.sign(&signer, unsigned).await?;
-
-        // ---- BODY BYTES (ONCE) ----
-        let body_bytes = serde_json::to_vec(&signed)?;
-
-        // ---- DEBUG (optional) ----
-        println!("Body SHA256: {}", hex::encode(Sha256::digest(&body_bytes)));
-
         let headers = generate_l2_headers(
             &api_key,
             &api_secret,
@@ -168,25 +133,23 @@ async fn main() -> Result<()> {
             &body_bytes,
         )?;
 
-        let t0 = Instant::now();
-
+        let t0 = std::time::Instant::now();
         let resp = http
             .post(clob_url)
             .headers(headers)
-            .body(body_bytes)
+            .body(body_bytes.clone())
             .send()
             .await?;
 
         let dt = t0.elapsed().as_millis();
         let status = resp.status();
-
         println!("✅ Order #{} | {}ms | {}", i, dt, status);
 
         if !status.is_success() {
             println!("❌ {}", resp.text().await?);
         }
 
-        sleep(Duration::from_millis(1000)).await;
+        sleep(Duration::from_millis(500)).await;
     }
 
     Ok(())
