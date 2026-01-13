@@ -62,7 +62,8 @@ fn generate_l2_headers(
     mac.update(path.as_bytes());
     mac.update(body_bytes);
 
-    let signature = general_purpose::STANDARD.encode(mac.finalize().into_bytes());
+    let signature =
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes());
 
     let mut headers = header::HeaderMap::new();
     headers.insert("POLY-API-KEY", header::HeaderValue::from_str(api_key)?);
