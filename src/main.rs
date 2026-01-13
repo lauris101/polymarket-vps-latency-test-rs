@@ -48,22 +48,19 @@ fn generate_l2_headers(
     path: &str,
     body_bytes: &[u8],
 ) -> Result<header::HeaderMap> {
-    // MUST be milliseconds
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)?
         .as_millis()
         .to_string();
 
-    let secret_bytes = decode_polymarket_secret(api_secret)?;
-
-    let mut mac = Hmac::<Sha256>::new_from_slice(&secret_bytes)?;
+    let mut mac = Hmac::<Sha256>::new_from_slice(api_secret.as_bytes())?;
     mac.update(timestamp.as_bytes());
-    mac.update(method.as_bytes());
-    mac.update(path.as_bytes());
+    mac.update(method.as_bytes()); // "POST"
+    mac.update(path.as_bytes()); // "/orders"
     mac.update(body_bytes);
 
-    let signature =
-        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes());
+    // STANDARD base64 (this is what Polymarket expects)
+    let signature = base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes());
 
     let mut headers = header::HeaderMap::new();
     headers.insert("POLY-API-KEY", header::HeaderValue::from_str(api_key)?);
@@ -79,13 +76,6 @@ fn generate_l2_headers(
         "POLY-API-PASSPHRASE",
         header::HeaderValue::from_str(passphrase)?,
     );
-
-    // REQUIRED for proxy-derived keys
-    headers.insert(
-        "POLY-API-SIGNATURE-TYPE",
-        header::HeaderValue::from_static("GnosisSafe"),
-    );
-
     headers.insert(
         header::CONTENT_TYPE,
         header::HeaderValue::from_static("application/json"),
