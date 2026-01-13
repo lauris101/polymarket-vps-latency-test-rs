@@ -31,7 +31,7 @@ RUN cargo build --release
 # STAGE 2: Runtime
 # Use a minimal linux image (Debian Bookworm Slim)
 # It's lighter and safer than a full OS image
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 
 # Install OpenSSL/CA certificates (Critical for connecting to Polymarket HTTPS/WSS)
 RUN apt-get update && apt-get install -y \
