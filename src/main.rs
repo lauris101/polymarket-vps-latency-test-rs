@@ -29,7 +29,6 @@ struct Args {
     side: String,
 }
 
-// --- Helper: Generate L2 Auth Headers ---
 fn generate_l2_headers(
     api_key: &str,
     api_secret: &str,
@@ -40,10 +39,11 @@ fn generate_l2_headers(
 ) -> Result<header::HeaderMap> {
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)?
-        .as_secs()
+        .as_millis()
         .to_string();
 
     let message = format!("{}{}{}{}", timestamp, method, path, body);
+
     let mut mac = Hmac::<Sha256>::new_from_slice(api_secret.as_bytes())?;
     mac.update(message.as_bytes());
     let signature = general_purpose::STANDARD.encode(mac.finalize().into_bytes());
@@ -62,10 +62,18 @@ fn generate_l2_headers(
         "POLY-API-PASSPHRASE",
         header::HeaderValue::from_str(passphrase)?,
     );
+
+    // REQUIRED for proxy-derived keys
     headers.insert(
-        "Content-Type",
+        "POLY-API-SIGNATURE-TYPE",
+        header::HeaderValue::from_static("GnosisSafe"),
+    );
+
+    headers.insert(
+        header::CONTENT_TYPE,
         header::HeaderValue::from_static("application/json"),
     );
+
     Ok(headers)
 }
 
@@ -117,8 +125,8 @@ async fn main() -> Result<()> {
         .user_agent("clob_rs_client")
         .build()?;
 
-    let clob_url = "https://clob.polymarket.com/order";
-    let path = "/order";
+    let clob_url = "https://clob.polymarket.com/orders";
+    let path = "/orders";
     let method = "POST";
 
     // 7. PREPARE ORDER
