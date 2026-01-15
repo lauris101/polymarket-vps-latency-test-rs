@@ -5,8 +5,8 @@ edition = "2021"
 
 [dependencies]
 # The SDK (uses Alloy v1.3.0 internally)
-# polymarket-client-sdk = { git = "https://github.com/Polymarket/rs-clob-client", tag = "v0.4.0", features = ["clob", "ws"] }
-polymarket-client-sdk = { path = "../rs-clob-client", features = ["clob", "ws"] }
+polymarket-client-sdk = { git = "https://github.com/Polymarket/rs-clob-client", tag = "v0.4.0", features = ["clob", "ws"] }
+# polymarket-client-sdk = { path = "../rs-clob-client", features = ["clob", "ws"] }
 # FIX: Match the SDK's Alloy version (1.3.0) exactly to avoid C-lib conflicts
 alloy = { version = "1.3.0", features = ["signers", "signer-local"] }
 
