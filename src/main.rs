@@ -10,7 +10,7 @@ use polymarket_client_sdk::clob::{Client, Config};
 use polymarket_client_sdk::types::Decimal;
 
 // Alloy Imports
-use alloy::primitives::U256;
+use alloy::primitives::{Address, U256};
 use alloy::signers::local::PrivateKeySigner;
 use alloy::signers::Signer;
 
